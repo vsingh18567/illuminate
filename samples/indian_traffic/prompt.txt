@@ -1,0 +1,6 @@
+I am working for the government and we're trying to automate the fine collection process for traffic violations.
+
+We have a dataset of all the traffic violations in the country with a few features. 
+
+This is likely not sufficient to automate the fine collection process, but try and help us understand the factors that contribute to the fine amount and come up with a predictive model.
+
