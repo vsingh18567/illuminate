@@ -1,3 +1,4 @@
+import base64
 from dataclasses import dataclass
 from enum import Enum
 import json
@@ -10,7 +11,7 @@ from illuminate.tools import (
     JUPYTER_NOTEBOOK_TOOLS,
     TOOL_DEFINITIONS,
     TOOLS,
-    execute_tool,
+    execute_tool_request_file,
 )
 from loguru import logger
 from pydantic import BaseModel
@@ -42,7 +43,7 @@ class Agent:
         if completion.choices[0].message.tool_calls:
             logger.info(f"{self.name} is calling tools")
             for tool_call in completion.choices[0].message.tool_calls:
-                self.call_tool(tool_call)
+                self.call_tool(tool_call, client)
             return self.query(client)
         logger.info(f"{self.name} is done.")
 
@@ -62,7 +63,7 @@ class Agent:
             f.write(json.dumps(message))
             f.write(f"\n{'-' * 20}\n")
 
-    def add_message(self, message: dict, user: bool):
+    def add_message(self, message: ParsedChatCompletionMessage, user: bool):
         if user:
             self._add_message({"role": "user", "content": message})
             return
@@ -83,9 +84,42 @@ class Agent:
                 {"role": "assistant", "content": [], "tool_calls": tool_calls}
             )
 
-    def call_tool(self, tool_call: ChatCompletionMessageToolCall):
-        result = execute_tool(tool_call)
-        print(tool_call.id)
+    def _add_file_request(self, file_path: str, client: OpenAI):
+        file_type = file_path.split(".")[-1]
+        if file_type == "pdf":
+            file = client.files.create(file=open(file_path, "rb"), purpose="user_data")
+            self._add_message(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "file",
+                            "file": {
+                                "file_id": file.id,
+                            },
+                        },
+                    ],
+                }
+            )
+        elif file_type in ["png", "jpg", "jpeg"]:
+            with open(file_path, "rb") as image_file:
+                image = base64.b64encode(image_file.read()).decode("utf-8")
+            self._add_message(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/{file_type};base64,{image}",
+                            },
+                        },
+                    ],
+                }
+            )
+
+    def call_tool(self, tool_call: ChatCompletionMessageToolCall, client: OpenAI):
+        result, file_path = execute_tool_request_file(tool_call)
         self._add_message(
             {
                 "role": "tool",
@@ -93,3 +127,5 @@ class Agent:
                 "tool_call_id": tool_call.id,
             }
         )
+        if file_path is not None:
+            self._add_file_request(file_path, client)

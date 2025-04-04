@@ -3,7 +3,7 @@ from openai import OpenAI, pydantic_function_tool
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from illuminate.agents.agent_system import AgentSystem
-from illuminate.tools import TOOL_DEFINITIONS, execute_tool
+from illuminate.tools import TOOL_DEFINITIONS, execute_tool_request_file
 from loguru import logger
 
 
