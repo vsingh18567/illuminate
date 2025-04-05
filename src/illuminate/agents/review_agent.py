@@ -1,11 +1,7 @@
-from enum import Enum
 from openai import OpenAI
 from pydantic import BaseModel
 
 from illuminate.agents.agent import Agent
-from illuminate.tools import TOOL_DEFINITIONS
-
-from openai.types.chat import ChatCompletionMessageToolCall, ParsedChatCompletionMessage
 
 
 class ReviewResponse(BaseModel):
@@ -26,7 +22,7 @@ class ReviewAgent(Agent):
 
     You will be given the user's initial prompt, a worker's task and the work done by the worker. The worker has done the task in the current working directory.
 
-    You will need to review the work done by the worker and provide feedback on what needs to be improved.
+    You will need to review the work done by the worker and provide feedback on what needs to be improved. The worker does not need to complete the entire user's request - just the task they have been assigned.
 
     Use the tools provided to review the work done by the worker (including checking the files they created).
 
@@ -40,7 +36,6 @@ class ReviewAgent(Agent):
             description="Review the work done by the worker and provide feedback on what needs to be improved.",
             model="gpt-4o",
             system_prompt=ReviewAgent.REVIEW_SYSTEM_PROMPT,
-            tools=TOOL_DEFINITIONS,
             response_model=ReviewResponse,
             messages=[],
         )

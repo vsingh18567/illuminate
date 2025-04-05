@@ -1,19 +1,8 @@
-from abc import ABC
-import base64
-import json
 import os
 import subprocess
 from loguru import logger
-from openai import pydantic_function_tool
-from pydantic import BaseModel, Field
-from openai.types.chat import ChatCompletionToolParam, ChatCompletionMessageToolCall
-import nbformat as nbf
-
-
-class Tool(BaseModel, ABC):
-
-    def __call__(self) -> dict:
-        raise NotImplementedError("Subclasses must implement this method")
+from pydantic import Field
+from illuminate.tools.base import Tool
 
 
 class LsTool(Tool):
@@ -154,6 +143,8 @@ class WriteFileTool(Tool):
 
     def __call__(self) -> dict:
         try:
+            if not os.path.exists(os.path.dirname(self.path)):
+                os.makedirs(os.path.dirname(self.path))
             with open(self.path, "w") as f:
                 f.write(self.content)
             return {"success": True}
@@ -198,49 +189,6 @@ class DeleteFileTool(Tool):
             return {"success": False, "error": str(e)}
 
 
-class RunPythonTool(Tool):
-    """Run an existing Python script
-
-    Do not use this tool to try and print out the contents of a large file.
-
-    Returns a JSON object with the following fields:
-        stdout: str
-        stderr: str
-        returncode: int
-    """
-
-    script: str = Field(..., description="Path to the Python script to run")
-
-    def __call__(self) -> dict:
-        result = subprocess.run(["python", self.script], capture_output=True, text=True)
-        return {
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "returncode": result.returncode,
-        }
-
-
-class PipInstallTool(Tool):
-    """Install a Python package
-
-    Returns a JSON object with the following fields:
-        success: bool
-        error: str | None
-    """
-
-    package: str = Field(..., description="The package to install")
-
-    def __call__(self) -> dict:
-        result = subprocess.run(
-            ["pip", "install", self.package], capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            return {"success": True}
-        else:
-            logger.error(f"Error installing package: {result.stderr}")
-            return {"success": False, "error": result.stderr}
-
-
 class HtmlToPdfTool(Tool):
     """Convert an HTML file to a PDF file
 
@@ -278,154 +226,10 @@ class HtmlToPdfTool(Tool):
             return {"success": False, "error": str(e)}
 
 
-class JupyterNotebookCell(BaseModel):
-    """A cell in a jupyter notebook
-
-    Returns a JSON object with the following fields:
-        cell_type: str
-        source: str
-    """
-
-    cell_type: str = Field(..., description="The type of the cell")
-    source: str = Field(..., description="The source code of the cell")
-
-
-class CreateJupyterNotebookTool(Tool):
-    """Create a jupyter notebook from the work done in a data science project.
-
-    Returns a JSON object with the following fields:
-        success: bool
-        error: str | None
-    """
-
-    path: str = Field(..., description="The path to the jupyter notebook to create")
-
-    def __call__(self) -> dict:
-        nb = nbf.v4.new_notebook()
-        nb["cells"] = []
-        try:
-            with open(self.path, "w") as f:
-                nbf.write(nb, f)
-            return {"success": True}
-        except Exception as e:
-            logger.error(f"Error creating notebook: {e}")
-            return {"success": False, "error": str(e)}
-
-
-class GetJupyterNotebookCellsTool(Tool):
-    """Get the cells of a jupyter notebook
-
-    Internally uses nbformat
-
-    Returns a JSON object with the following fields:
-        cells: list[JupyterNotebookCell]
-    """
-
-    path: str = Field(
-        ..., description="The path to the jupyter notebook to get the cells of"
-    )
-
-    def __call__(self) -> dict:
-        if not os.path.exists(self.path):
-            return {"error": f"File not found: {self.path}"}
-        # Load an existing notebook
-        with open(self.path, "r", encoding="utf-8") as f:
-            notebook = nbf.read(f, as_version=4)
-
-        # Extract all cells
-        cells = notebook["cells"]
-        print("GetJupyterNotebookCellsTool cells", type(cells), str(cells))
-        output = []
-        for i, cell in enumerate(cells):
-            output.append(
-                JupyterNotebookCell(cell_type=cell["cell_type"], source=cell["source"])
-            )
-
-        return {"cells": output}
-
-
-class AddJupyterNotebookCellsTool(Tool):
-    """Add cells to an existing jupyter notebook
-
-    Returns a JSON object with the following fields:
-        success: bool
-        error: str | None
-    """
-
-    path: str = Field(
-        ..., description="The path to the jupyter notebook to add the cells to"
-    )
-    cells: list[JupyterNotebookCell] = Field(
-        ..., description="The cells to add to the jupyter notebook"
-    )
-
-    def __call__(self) -> dict:
-
-        with open(self.path, "r", encoding="utf-8") as f:
-            notebook = nbf.read(f, as_version=4)
-        for cell in self.cells:
-            if cell.cell_type == "code":
-                new_cell = nbf.v4.new_code_cell(cell.source)
-            else:
-                new_cell = nbf.v4.new_markdown_cell(cell.source)
-            notebook["cells"].append(new_cell)
-        try:
-            with open(self.path, "w", encoding="utf-8") as f:
-                nbf.write(notebook, f)
-            return {"success": True}
-        except Exception as e:
-            logger.error(f"Error writing notebook: {e}")
-            return {"success": False, "error": str(e)}
-
-
-TOOLS: list[type[Tool]] = [
+FILE_TOOLS: list[type[Tool]] = [
     LsTool,
     GetFileInfoTool,
     CatTool,
     WriteFileTool,
     DeleteFileTool,
-    RunPythonTool,
-    PipInstallTool,
-    HtmlToPdfTool,
-    ViewImageTool,
-    ViewPDFTool,
 ]
-
-JUPYTER_NOTEBOOK_TOOLS: list[type[Tool]] = TOOLS + [
-    CreateJupyterNotebookTool,
-    GetJupyterNotebookCellsTool,
-    AddJupyterNotebookCellsTool,
-]
-
-
-TOOL_DEFINITIONS: list[ChatCompletionToolParam] = [
-    pydantic_function_tool(tool) for tool in TOOLS
-]
-JUPYTER_NOTEBOOK_TOOL_DEFINITIONS: list[ChatCompletionToolParam] = [
-    pydantic_function_tool(tool) for tool in JUPYTER_NOTEBOOK_TOOLS
-]
-
-FILE_REQUEST_TOOLS: set[str] = {ViewPDFTool.__name__, ViewImageTool.__name__}
-
-
-def execute_tool_request_file(
-    tool_call: ChatCompletionMessageToolCall,
-) -> tuple[str, str | None]:
-    tool_name = tool_call.function.name
-    tool_args = json.loads(tool_call.function.arguments)
-    shortened_args = ""
-    for k, v in tool_args.items():
-        if len(v) > 20:
-            shortened_args += f"{k}: {v[:30]}...,"
-        else:
-            shortened_args += f"{k}: {v},"
-    logger.info(f"Executing tool: {tool_name}({shortened_args})")
-
-    for tool in JUPYTER_NOTEBOOK_TOOLS:
-        if tool.__name__ == tool_name:
-            if tool_name in FILE_REQUEST_TOOLS:
-                return json.dumps({"success": True}), tool_args["path"]
-            else:
-                tool_instance = tool(**tool_args)
-                return json.dumps(tool_instance()), None
-    return json.dumps({"error": f"Tool {tool_name} not found"}), None

@@ -3,7 +3,7 @@ from openai import OpenAI
 
 from illuminate.agents.planning_agent import PlanningAction, PlanningAgent
 from illuminate.agents.review_agent import ReviewAgent
-from illuminate.agents.worker_agents import IpynbAgent, WorkerAgent
+from illuminate.agents.worker_agents import WorkerAgent
 
 
 class AgentSystem:
@@ -11,7 +11,7 @@ class AgentSystem:
     def __init__(self, user_prompt: str, client: OpenAI):
         self.client = client
         self.planning_agent = PlanningAgent(user_prompt)
-        self.work_done: list[str]  = []
+        self.work_done: list[str] = []
         self.step_id = 0
 
     def add_work_done(self, agent_name: str, work_done: str):
@@ -56,19 +56,18 @@ class AgentSystem:
                 )
 
     def run(self):
+        plan_printed = False
         while True:
             action, plan = self.planning_agent.run(self.client)
             if action == PlanningAction.DONE:
                 logger.info(f"Project is complete. Final summary: {plan}")
                 break
             elif action == PlanningAction.PLAN:
+                if not plan_printed:
+                    logger.info(f"Planning agent has formed an initial plan: {plan}")
+                    plan_printed = True
                 self.worker_step(plan)
             elif action == PlanningAction.USER_QUESTION:
                 raise NotImplementedError("User question should never be returned")
             else:
                 return
-        ipynb_agent = IpynbAgent(
-            user_prompt=self.planning_agent.user_prompt,
-            work_so_far="\n".join(self.work_done),
-        )
-        ipynb_agent.run(self.client)
